@@ -1,0 +1,6 @@
+{
+  "name": "WebP Converter",
+  "description": "Batch convert PNG and JPG images to WebP format with adjustable quality.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
