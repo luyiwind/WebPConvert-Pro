@@ -1,14 +1,16 @@
 import React from 'react';
-import { Download, Trash2, Loader2, ArrowRight } from 'lucide-react';
+import { Download, Trash2, Loader2, ArrowRight, Crop } from 'lucide-react';
 import { ImageFile } from '../types';
 import { formatBytes } from '../utils';
 
 interface ImageItemProps {
   item: ImageFile;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
   onRemove: (id: string) => void;
 }
 
-export function ImageItem({ item, onRemove }: ImageItemProps) {
+export function ImageItem({ item, isSelected, onSelect, onRemove }: ImageItemProps) {
   const getSavings = () => {
     if (!item.webpSize) return 0;
     const savings = ((item.originalSize - item.webpSize) / item.originalSize) * 100;
@@ -19,7 +21,14 @@ export function ImageItem({ item, onRemove }: ImageItemProps) {
   const isConverting = item.status === 'converting';
 
   return (
-    <div className={`p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-4 transition-all hover:bg-white/10 ${isConverting ? 'opacity-70' : ''}`}>
+    <div
+      onClick={() => onSelect(item.id)}
+      className={`p-4 rounded-2xl border flex items-center gap-4 transition-all cursor-pointer ${
+        isSelected
+          ? 'border-indigo-500 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.15)] ring-1 ring-indigo-500/30'
+          : 'border-white/10 bg-white/5 hover:bg-white/10'
+      } ${isConverting ? 'opacity-75' : ''}`}
+    >
       {/* Thumbnail */}
       <div className="w-16 h-16 rounded-xl bg-slate-800 flex-shrink-0 overflow-hidden border border-white/5 relative">
         <img src={item.originalPreview} alt={item.name} className="w-full h-full object-cover opacity-80" />
@@ -32,8 +41,15 @@ export function ImageItem({ item, onRemove }: ImageItemProps) {
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-slate-200 truncate" title={item.name}>
-          {item.name}
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <div className="text-sm font-medium text-slate-200 truncate flex-1" title={item.name}>
+            {item.name}
+          </div>
+          {item.crop.enabled && (
+            <span className="shrink-0 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+              <Crop className="w-2.5 h-2.5" /> Crop
+            </span>
+          )}
         </div>
         
         {isConverting ? (
@@ -57,7 +73,7 @@ export function ImageItem({ item, onRemove }: ImageItemProps) {
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col items-end gap-2 shrink-0">
+      <div className="flex flex-col items-end gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
         {isDone && item.webpSize && (
           <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded">
             -{getSavings()}%
@@ -87,3 +103,4 @@ export function ImageItem({ item, onRemove }: ImageItemProps) {
     </div>
   );
 }
+

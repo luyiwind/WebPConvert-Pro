@@ -3,11 +3,13 @@ import { Settings, FileImage, Download } from 'lucide-react';
 import { Dropzone } from './components/Dropzone';
 import { QualitySlider } from './components/QualitySlider';
 import { ImageItem } from './components/ImageItem';
-import { ImageFile } from './types';
-import { convertToWebp } from './utils';
+import { ImageCropper } from './components/ImageCropper';
+import { ImageFile, CropSettings } from './types';
+import { convertToWebp, getImageDimensions } from './utils';
 
 export default function App() {
   const [files, setFiles] = useState<ImageFile[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quality, setQuality] = useState(80);
   const [debouncedQuality, setDebouncedQuality] = useState(80);
 
@@ -32,17 +34,17 @@ export default function App() {
     filesRef.current.forEach(file => {
       // Re-convert everything when quality changes, except those actively converting
       if (file.status !== 'converting') {
-        processFile(file.id, file.file, debouncedQuality);
+        processFile(file.id, file.file, debouncedQuality, file.crop);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuality]); 
 
-  const processFile = async (id: string, fileData: File, targetQuality: number) => {
+  const processFile = async (id: string, fileData: File, targetQuality: number, cropSettings?: CropSettings) => {
     setFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'converting' } : f));
     
     try {
-      const webpBlob = await convertToWebp(fileData, targetQuality);
+      const webpBlob = await convertToWebp(fileData, targetQuality, cropSettings);
       const webpPreview = URL.createObjectURL(webpBlob);
       
       setFiles(prev => prev.map(f => {
@@ -64,24 +66,53 @@ export default function App() {
     }
   };
 
-  const onFilesAdded = useCallback((newFiles: File[]) => {
-    const newImageFiles: ImageFile[] = newFiles.map(file => ({
-      id: Math.random().toString(36).substring(7) + Date.now().toString(),
-      file,
-      name: file.name,
-      originalPreview: URL.createObjectURL(file),
-      originalSize: file.size,
-      webpBlob: null,
-      webpPreview: null,
-      webpSize: null,
-      status: 'idle'
-    }));
+  const onFilesAdded = useCallback(async (newFiles: File[]) => {
+    const newImageFiles: ImageFile[] = [];
 
-    setFiles(prev => [...prev, ...newImageFiles]);
-    
+    for (const file of newFiles) {
+      const id = Math.random().toString(36).substring(7) + Date.now().toString();
+      const originalPreview = URL.createObjectURL(file);
+      
+      let dimensions = { width: 800, height: 600 };
+      try {
+        dimensions = await getImageDimensions(file);
+      } catch (err) {
+        console.error("Failed to get dimensions:", err);
+      }
+
+      newImageFiles.push({
+        id,
+        file,
+        name: file.name,
+        originalPreview,
+        originalSize: file.size,
+        webpBlob: null,
+        webpPreview: null,
+        webpSize: null,
+        status: 'idle',
+        crop: {
+          enabled: false,
+          aspectRatio: 'free',
+          x: 0.1,
+          y: 0.1,
+          width: 0.8,
+          height: 0.8
+        },
+        dimensions
+      });
+    }
+
+    setFiles(prev => {
+      const updated = [...prev, ...newImageFiles];
+      return updated;
+    });
+
+    // Automatically select the first file from the newly added files if nothing is selected
+    setSelectedId(prev => prev || newImageFiles[0]?.id || null);
+
     // Start processing immediately with current quality
     newImageFiles.forEach(f => {
-      processFile(f.id, f.file, debouncedQuality);
+      processFile(f.id, f.file, debouncedQuality, f.crop);
     });
   }, [debouncedQuality]);
 
@@ -92,9 +123,54 @@ export default function App() {
         URL.revokeObjectURL(fileToRemove.originalPreview);
         if (fileToRemove.webpPreview) URL.revokeObjectURL(fileToRemove.webpPreview);
       }
-      return prev.filter(f => f.id !== id);
+      const filtered = prev.filter(f => f.id !== id);
+      
+      // Update selectedId if the deleted one was selected
+      setSelectedId(prevSelectedId => {
+        if (prevSelectedId === id) {
+          return filtered.length > 0 ? filtered[0].id : null;
+        }
+        return prevSelectedId;
+      });
+
+      return filtered;
     });
   }, []);
+
+  const handleCropChange = useCallback((id: string, newCrop: CropSettings) => {
+    setFiles(prev => {
+      return prev.map(f => {
+        if (f.id === id) {
+          return {
+            ...f,
+            crop: newCrop
+          };
+        }
+        return f;
+      });
+    });
+
+    const targetFile = filesRef.current.find(f => f.id === id);
+    if (targetFile) {
+      processFile(id, targetFile.file, debouncedQuality, newCrop);
+    }
+  }, [debouncedQuality]);
+
+  const handleApplyCropToAll = useCallback((cropSettings: CropSettings) => {
+    setFiles(prev => {
+      return prev.map(f => {
+        return {
+          ...f,
+          crop: { ...cropSettings }
+        };
+      });
+    });
+
+    // Re-process all images with the synced crop settings
+    filesRef.current.forEach(file => {
+      processFile(file.id, file.file, debouncedQuality, cropSettings);
+    });
+  }, [debouncedQuality]);
 
   const downloadAll = () => {
     const completedFiles = files.filter(f => f.status === 'success' && f.webpPreview);
@@ -110,6 +186,8 @@ export default function App() {
       }, index * 200);
     });
   };
+
+  const activeImage = files.find(f => f.id === selectedId);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30 relative flex flex-col overflow-x-hidden">
@@ -142,46 +220,64 @@ export default function App() {
                 <p className="flex items-center gap-2 font-bold mb-1 uppercase text-xs tracking-wider text-indigo-300">
                   <Settings className="w-4 h-4" /> Auto-Process
                 </p>
-                <p className="opacity-90 text-[11px] text-indigo-300/80">Adjusting the quality slider will automatically re-compress all uploaded images.</p>
+                <p className="opacity-90 text-[11px] text-indigo-300/80">Adjusting quality or crop settings will automatically re-compress all uploaded images instantly.</p>
               </div>
             )}
           </div>
 
-          {/* Right Column: List */}
-          <div className="lg:col-span-2 flex flex-col gap-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                Processing Queue 
-                {files.length > 0 && (
-                  <span className="text-indigo-400">
-                    ({files.length})
-                  </span>
+          {/* Right Column: Editor & List */}
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            {/* Active Image Cropper */}
+            {activeImage && (
+              <ImageCropper
+                activeImage={activeImage}
+                onCropChange={handleCropChange}
+                onApplyToAll={handleApplyCropToAll}
+              />
+            )}
+
+            {/* List */}
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  Processing Queue 
+                  {files.length > 0 && (
+                    <span className="text-indigo-400 font-mono">
+                      ({files.length})
+                    </span>
+                  )}
+                </h2>
+                
+                {files.some(f => f.status === 'success') && (
+                  <button
+                    onClick={downloadAll}
+                    className="flex items-center gap-2 text-sm font-medium text-white bg-indigo-500 hover:bg-indigo-400 px-4 py-2 rounded-full transition-colors shadow-lg shadow-indigo-500/20 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download All
+                  </button>
                 )}
-              </h2>
-              
-              {files.some(f => f.status === 'success') && (
-                <button
-                  onClick={downloadAll}
-                  className="flex items-center gap-2 text-sm font-medium text-white bg-indigo-500 hover:bg-indigo-400 px-4 py-2 rounded-full transition-colors shadow-lg shadow-indigo-500/20"
-                >
-                  <Download className="w-4 h-4" />
-                  Download All
-                </button>
+              </div>
+
+              {files.length === 0 ? (
+                <div className="h-40 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-3xl bg-white/5 text-slate-400 backdrop-blur-sm">
+                  <FileImage className="w-12 h-12 mb-3 text-slate-600" />
+                  <p className="text-sm">No images uploaded yet</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {files.map(item => (
+                    <ImageItem
+                      key={item.id}
+                      item={item}
+                      isSelected={item.id === selectedId}
+                      onSelect={setSelectedId}
+                      onRemove={removeFile}
+                    />
+                  ))}
+                </div>
               )}
             </div>
-
-            {files.length === 0 ? (
-              <div className="h-40 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-3xl bg-white/5 text-slate-400 backdrop-blur-sm">
-                <FileImage className="w-12 h-12 mb-3 text-slate-600" />
-                <p className="text-sm">No images uploaded yet</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {files.map(item => (
-                  <ImageItem key={item.id} item={item} onRemove={removeFile} />
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </main>
