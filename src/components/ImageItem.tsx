@@ -1,5 +1,5 @@
-import React from 'react';
-import { Download, Trash2, Loader2, ArrowRight, Crop } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Download, Trash2, Loader2, ArrowRight, Crop, Edit2 } from 'lucide-react';
 import { ImageFile } from '../types';
 import { formatBytes } from '../utils';
 
@@ -8,9 +8,10 @@ interface ImageItemProps {
   isSelected: boolean;
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
+  onRename: (id: string, newName: string) => void;
 }
 
-export function ImageItem({ item, isSelected, onSelect, onRemove }: ImageItemProps) {
+export function ImageItem({ item, isSelected, onSelect, onRemove, onRename }: ImageItemProps) {
   const getSavings = () => {
     if (!item.webpSize) return 0;
     const savings = ((item.originalSize - item.webpSize) / item.originalSize) * 100;
@@ -19,6 +20,32 @@ export function ImageItem({ item, isSelected, onSelect, onRemove }: ImageItemPro
 
   const isDone = item.status === 'success';
   const isConverting = item.status === 'converting';
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState(item.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditingName && inputRef.current) {
+      inputRef.current.focus();
+      const lastDot = editName.lastIndexOf('.');
+      if (lastDot > 0) {
+        inputRef.current.setSelectionRange(0, lastDot);
+      } else {
+        inputRef.current.select();
+      }
+    }
+  }, [isEditingName]);
+
+  const handleRenameSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (editName.trim() && editName !== item.name) {
+      onRename(item.id, editName.trim());
+    } else {
+      setEditName(item.name);
+    }
+    setIsEditingName(false);
+  };
 
   return (
     <div
@@ -42,9 +69,34 @@ export function ImageItem({ item, isSelected, onSelect, onRemove }: ImageItemPro
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5">
-          <div className="text-sm font-medium text-slate-200 truncate flex-1" title={item.name}>
-            {item.name}
-          </div>
+          {isEditingName ? (
+            <form onSubmit={handleRenameSubmit} className="flex-1 flex items-center min-w-0" onClick={e => e.stopPropagation()}>
+              <input
+                ref={inputRef}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={() => handleRenameSubmit()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setEditName(item.name);
+                    setIsEditingName(false);
+                  }
+                }}
+                className="w-full bg-slate-900/50 border border-indigo-500/50 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none focus:border-indigo-400"
+              />
+            </form>
+          ) : (
+            <div className="text-sm font-medium text-slate-200 truncate flex-1 group flex items-center gap-2" title={item.name}>
+              <span className="truncate">{item.name}</span>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsEditingName(true); setEditName(item.name); }}
+                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-400 transition-opacity p-0.5 shrink-0"
+                title="Rename file"
+              >
+                <Edit2 className="w-3 h-3" />
+              </button>
+            </div>
+          )}
           {item.crop.enabled && (
             <span className="shrink-0 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1">
               <Crop className="w-2.5 h-2.5" /> Crop

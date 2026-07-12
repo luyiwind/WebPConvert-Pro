@@ -137,6 +137,10 @@ export default function App() {
     });
   }, []);
 
+  const renameFile = useCallback((id: string, newName: string) => {
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
+  }, []);
+
   const handleCropChange = useCallback((id: string, newCrop: CropSettings) => {
     setFiles(prev => {
       return prev.map(f => {
@@ -273,6 +277,7 @@ export default function App() {
                       isSelected={item.id === selectedId}
                       onSelect={setSelectedId}
                       onRemove={removeFile}
+                      onRename={renameFile}
                     />
                   ))}
                 </div>
